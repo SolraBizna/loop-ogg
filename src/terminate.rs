@@ -17,21 +17,10 @@ impl Terminator {
 	let ctrlc_count_clone = ctrlc_count.clone();
 	ctrlc::set_handler(move || {
 	    let n = ctrlc_count_clone.load(Ordering::Relaxed);
-	    let n = match n {
-		0 => {
-		    eprintln!("\r\x1b[0KCeasing loop...");
-		    1
-		},
-		1 => {
-		    eprintln!("\r\x1b[0KStopping!");
-		    2
-		},
-		2 => 3,
-		3 => 4,
-		_ => {
-		    eprintln!("\r\x1b[0KSUDOKU!");
-		    std::process::exit(1)
-		},
+	    let n = n + 1;
+	    if n >= 5 {
+		eprintln!("\r\x1b[0KSUDOKU!");
+		std::process::exit(1)
 	    };
 	    ctrlc_count_clone.store(n, Ordering::Relaxed);
 	}).expect("unable to set control-C handler");

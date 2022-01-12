@@ -1,6 +1,12 @@
 use std::{
-    sync::mpsc::{Receiver, sync_channel},
+    collections::VecDeque,
+    sync::{
+	Arc,
+	atomic::{AtomicUsize, Ordering},
+	mpsc::{Receiver, sync_channel, TrySendError},
+    },
     fs::File,
+    path::Path,
 };
 
 use anyhow::anyhow;
@@ -30,8 +36,8 @@ fn mix_onto(o: &mut[f32], i: &[f32]) {
     }
 }
 
-pub fn start_decoding(path: &str, terminator: Terminator)
-		      -> anyhow::Result<(u32, u32, usize, Option<usize>, Receiver<(usize,Vec<f32>)>)> {
+pub fn start_decoding(path: &Path, terminator: Terminator)
+		      -> anyhow::Result<(u32, u32, usize, Arc<AtomicUsize>, Receiver<(usize,Vec<f32>)>)> {
     let file = File::open(path)?;
     let mut osr = OggStreamReader::new(file)?;
     let channel_count = match osr.ident_hdr.audio_channels {
@@ -85,6 +91,11 @@ pub fn start_decoding(path: &str, terminator: Terminator)
     else { usize::MAX };
     let loop_left_i: usize = loop_left.saturating_mul(channel_count as usize);
     let loop_right_i: usize =loop_right.saturating_mul(channel_count as usize);
+    let loop_right_atom = Arc::new(AtomicUsize::new(
+	if loop_right_i == usize::MAX { 0 }
+	else { loop_right_i }
+    ));
+    let loop_right_atom_clone = loop_right_atom.clone();
     let (decode_tx, decode_rx) = sync_channel(crate::NUM_PACKETS_BUFFERED);
     let _ = std::thread::Builder::new().name("decode thread".to_string())
 	.spawn(move || {
@@ -151,6 +162,10 @@ pub fn start_decoding(path: &str, terminator: Terminator)
 		    break
 		}
 	    }
+	    // once we've hit the left loop point, we want to race ahead
+	    // and find the right loop point as soon as possible. so, we
+	    // start buffering our sends.
+	    let mut buffered_sends = VecDeque::new();
 	    let mut rest = if loop_buf.len() > floats_left_till_end {
 		let rest: Vec<f32> = loop_buf[floats_left_till_end..]
 		    .iter().map(|x| *x).collect();
@@ -175,7 +190,7 @@ pub fn start_decoding(path: &str, terminator: Terminator)
 			floats_left_till_end -= floats.len();
 			loop_buf.extend_from_slice(&floats[..]);
 			let floats_len = floats.len();
-			if let Err(_) = loop_tx.send((pos, floats)) { return }
+			buffered_sends.push_back((pos, floats));
 			pos += floats_len;
 		    }
 		    else {
@@ -185,12 +200,29 @@ pub fn start_decoding(path: &str, terminator: Terminator)
 			    .iter().map(|x| *x).collect();
 			let floats_len = floats.len();
 			floats.resize(floats_left_till_end, 0.0);
-			if let Err(_) = loop_tx.send((pos, floats)) { return }
+			buffered_sends.push_back((pos, floats));
 			pos += floats_len;
 			break rest;
 		    }
+		    while let Some(buffered_send) = buffered_sends.pop_front(){
+			match loop_tx.try_send(buffered_send) {
+			    Ok(_) => (),
+			    Err(TrySendError::Full(buffered_send)) => { 
+				buffered_sends.push_front(buffered_send);
+				break;
+			    },
+			    Err(_) => return,
+			}
+		    }
 		}
 	    };
+	    // we now know for sure the length of the loop!
+	    loop_right_atom.store(loop_left_i + loop_buf.len(),
+				  Ordering::Relaxed);
+	    // drain our buffered sends before we do any more work
+	    for buffered_send in buffered_sends.into_iter() {
+		if let Err(_) = loop_tx.send(buffered_send) { return }
+	    }
 	    if loop_mix {
 		// obscure feature, never before supported by any other imp-
 		// lementation of this "standard"!
@@ -272,7 +304,6 @@ pub fn start_decoding(path: &str, terminator: Terminator)
 		pos += x_len;
 	    }
 	})?;
-    Ok((sample_rate, channel_count, loop_left_i,
-	if loop_right_i == usize::MAX { None } else { Some(loop_right_i) },
+    Ok((sample_rate, channel_count, loop_left_i, loop_right_atom_clone,
 	loop_rx))
 }

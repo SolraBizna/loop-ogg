@@ -1,4 +1,8 @@
-use std::sync::mpsc::{SyncSender, sync_channel, TryRecvError};
+use std::sync::{
+    Arc,
+    atomic::{AtomicUsize, Ordering},
+    mpsc::{SyncSender, sync_channel, TryRecvError},
+};
 
 use anyhow::anyhow;
 use log::{info,warn};
@@ -10,47 +14,46 @@ use portaudio::{
 
 use crate::Terminator;
 
-fn print_progress(cur: usize, loop_left: usize, loop_right: Option<usize>,
-		  loop_phase: bool) {
+fn print_progress(cur: usize, loop_left: usize, loop_right: &Arc<AtomicUsize>,
+		  time_unit: usize, loop_phase: bool, terminator: &Terminator)
+{
     let cols = 80;
     // we... don't expect that this display will be... useful... for a multi-
     // hour recording.
     // TODO: replace ANSI sequences
     let mut bar = format!("  {}:{:02}", cur / 60, cur % 60);
-    let rem_cols = cols - bar.len() as i32 - 1;
+    let rem_cols = cols - bar.len() as i32 - 3;
     if rem_cols > 1 {
 	bar.reserve(rem_cols as usize * 2 + 50);
 	bar.push(' ');
-	let fill_amt = if cur < loop_left { Some(0) }
-	else if let Some(loop_right) = loop_right {
-	    if cur > loop_right { Some(rem_cols) }
-	    else {
-		Some(((cur - loop_left) * (rem_cols as usize)
-		      / (loop_right - loop_left).max(1)) as i32)
-	    }
-	}
-	else { None };
-	if let Some(fill_amt) = fill_amt {
-	    if loop_phase {
-		bar.push_str("\x1b[2m");
-		for _ in 0 .. fill_amt { bar.push('═'); }
-		bar.push_str("\x1b[0;1m");
-		for _ in fill_amt .. rem_cols { bar.push('═'); }
-		bar.push_str("\x1b[0m");
-	    }
-	    else {
-		bar.push_str("\x1b[1m");
-		for _ in 0 .. fill_amt { bar.push('═'); }
-		bar.push_str("\x1b[0;2m");
-		for _ in fill_amt .. rem_cols { bar.push('═'); }
-		bar.push_str("\x1b[0m");
-	    }
-	}
+	let loop_right = loop_right.load(Ordering::Relaxed) / time_unit;
+	let fill_amt = if cur <= loop_left || loop_right == 0 { 0 }
+	else if cur >= loop_right { rem_cols }
 	else {
+	    ((cur - loop_left) * (rem_cols as usize)
+	     / (loop_right - loop_left).max(1)) as i32
+	};
+	let left_bracket = if cur < loop_left { '<' }
+	else { '>' };
+	let right_bracket = if !terminator.should_loop() { '>' }
+	else if loop_right == 0 { '?' }
+	else { '<' };
+	bar.push(left_bracket);
+	if loop_phase {
 	    bar.push_str("\x1b[2m");
-	    for _ in 0 .. rem_cols { bar.push('═'); }
+	    for _ in 0 .. fill_amt { bar.push('═'); }
+	    bar.push_str("\x1b[0;1m");
+	    for _ in fill_amt .. rem_cols { bar.push('═'); }
 	    bar.push_str("\x1b[0m");
 	}
+	else {
+	    bar.push_str("\x1b[1m");
+	    for _ in 0 .. fill_amt { bar.push('═'); }
+	    bar.push_str("\x1b[0;2m");
+	    for _ in fill_amt .. rem_cols { bar.push('═'); }
+	    bar.push_str("\x1b[0m");
+	}
+	bar.push(right_bracket);
     }
     eprint!("\r\x1B[0K{}\r", bar);
 }
@@ -61,17 +64,10 @@ fn end_progress() {
 
 pub fn start_playback(sample_rate: u32, channel_count: u32,
 		      time_unit: usize, loop_left: usize,
-		      loop_right: Option<usize>,
+		      loop_right: Arc<AtomicUsize>,
 		      terminator: Terminator,
-		      volume: &str) -> anyhow::Result<(u32,SyncSender<(usize, Vec<f32>)>, Box<dyn Fn() -> bool>)> {
+		      volume: f32, progress: bool) -> anyhow::Result<(u32,SyncSender<(usize, Vec<f32>)>, Box<dyn Fn() -> bool>)> {
     let loop_left = loop_left / time_unit;
-    let mut loop_right = loop_right.map(|x| x / time_unit);
-    let volume = if volume.starts_with("=") {
-	panic!("piped output isn't implemented yet, sorry Solra");
-    }
-    else {
-	volume.parse::<f32>().expect("invalid volume, must either be a float or start with an equals sign")
-    };
     let pa = PortAudio::new().expect("initializing portaudio");
     let output_device = pa.default_output_device().unwrap();
     let parameters = Parameters::new(output_device, channel_count as i32,
@@ -91,7 +87,7 @@ pub fn start_playback(sample_rate: u32, channel_count: u32,
     let (tx, rx) = sync_channel::<(usize, Vec<f32>)>(crate::NUM_PACKETS_BUFFERED);
     let mut leftovers: Vec<f32> = Vec::with_capacity(32768); // sure!
     let mut last_pos = None;
-    let mut loop_phase = loop_right.is_none();
+    let mut loop_phase = false;
     let callback = move |args: OutputCallbackArgs<f32>| {
 	let OutputCallbackArgs {
 	    buffer,
@@ -101,7 +97,9 @@ pub fn start_playback(sample_rate: u32, channel_count: u32,
 	if terminator.should_terminate() {
 	    rem.fill(0.0);
 	    while let Ok(_) = rx.try_recv() {}
-	    end_progress();
+	    if progress {
+		end_progress();
+	    }
 	    return StreamCallbackResult::Complete
 	}
 	if leftovers.len() > 0 {
@@ -125,7 +123,9 @@ pub fn start_playback(sample_rate: u32, channel_count: u32,
 		Err(TryRecvError::Empty) => break,
 		Err(TryRecvError::Disconnected) => {
 		    rem.fill(0.0);
-		    end_progress();
+		    if progress {
+			end_progress();
+		    }
 		    return StreamCallbackResult::Complete
 		},
 	    };
@@ -154,14 +154,14 @@ pub fn start_playback(sample_rate: u32, channel_count: u32,
 	    if Some(cur_pos) != last_pos {
 		if let Some(last_pos) = last_pos {
 		    if cur_pos < last_pos {
-			if loop_right.is_none() {
-			    loop_right = Some(last_pos);
-			}
 			loop_phase = !loop_phase;
 		    }
 		}
 		last_pos = Some(cur_pos);
-		print_progress(cur_pos, loop_left, loop_right, loop_phase);
+		if progress {
+		    print_progress(cur_pos, loop_left, &loop_right, time_unit,
+				   loop_phase, &terminator);
+		}
 	    }
 	}
 	StreamCallbackResult::Continue
