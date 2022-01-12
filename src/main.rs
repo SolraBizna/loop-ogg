@@ -51,7 +51,7 @@ fn main() -> anyhow::Result<()> {
     env_logger::init();
     let invocation = Invocation::parse();
     let progress = match (invocation.quiet, invocation.progress) {
-	(false, false) => atty::is(atty::Stream::Stdout),
+	(false, false) => atty::is(atty::Stream::Stderr),
 	(true, false) => false,
 	(false, true) => true,
 	(true, true) => {

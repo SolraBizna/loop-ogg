@@ -15,51 +15,44 @@ use portaudio::{
 use crate::Terminator;
 
 fn print_progress(cur: usize, loop_left: usize, loop_right: &Arc<AtomicUsize>,
-		  time_unit: usize, loop_phase: bool, terminator: &Terminator)
+		  time_unit: usize, terminator: &Terminator)
 {
+    // TODO: replace ANSI sequences, actually get terminal size
     let cols = 80;
+    let loop_right = loop_right.load(Ordering::Relaxed) / time_unit;
     // we... don't expect that this display will be... useful... for a multi-
     // hour recording.
-    // TODO: replace ANSI sequences
-    let mut bar = format!("  {}:{:02}", cur / 60, cur % 60);
-    let rem_cols = cols - bar.len() as i32 - 3;
+    let left_pos = format!("  {}:{:02} ", loop_left / 60, loop_left % 60);
+    let right_pos = if loop_right == 0 { " ?:??".to_owned() }
+    else { format!(" {}:{:02}", loop_right / 60, loop_right % 60) };
+    let cur_pos = format!("┤{}:{:02}├", cur / 60, cur % 60);
+    let mut bar = left_pos;
+    bar.reserve(cols*2); //heh
+    let rem_cols = cols - bar.len() - right_pos.len() - cur_pos.len();
     if rem_cols > 1 {
-	bar.reserve(rem_cols as usize * 2 + 50);
-	bar.push(' ');
-	let loop_right = loop_right.load(Ordering::Relaxed) / time_unit;
 	let fill_amt = if cur <= loop_left || loop_right == 0 { 0 }
 	else if cur >= loop_right { rem_cols }
 	else {
-	    ((cur - loop_left) * (rem_cols as usize)
-	     / (loop_right - loop_left).max(1)) as i32
+	    ((cur - loop_left) * (rem_cols as usize) * 2 + 1)
+		/ ((loop_right - loop_left).max(1) * 2)
 	};
-	let left_bracket = if cur < loop_left { '<' }
-	else { '>' };
-	let right_bracket = if !terminator.should_loop() { '>' }
+	let left_bracket = if cur < loop_left { '⋯' }
+	else { '╟' };
+	let right_bracket = if !terminator.should_loop() { '⋯' }
 	else if loop_right == 0 { '?' }
-	else { '<' };
+	else { '╢' };
 	bar.push(left_bracket);
-	if loop_phase {
-	    bar.push_str("\x1b[2m");
-	    for _ in 0 .. fill_amt { bar.push('═'); }
-	    bar.push_str("\x1b[0;1m");
-	    for _ in fill_amt .. rem_cols { bar.push('═'); }
-	    bar.push_str("\x1b[0m");
-	}
-	else {
-	    bar.push_str("\x1b[1m");
-	    for _ in 0 .. fill_amt { bar.push('═'); }
-	    bar.push_str("\x1b[0;2m");
-	    for _ in fill_amt .. rem_cols { bar.push('═'); }
-	    bar.push_str("\x1b[0m");
-	}
+	for _ in 0 .. fill_amt { bar.push('─'); }
+	bar.push_str(&cur_pos);
+	for _ in fill_amt .. rem_cols { bar.push('─'); }
 	bar.push(right_bracket);
-    }
-    eprint!("\r\x1B[0K{}\r", bar);
+	bar.push_str(&right_pos);
+	eprint!("\r\x1B[0K\r{}\r", bar);
+    } else { } // cowardly don't display progress if there's no room
 }
 
 fn end_progress() {
-    eprint!("\r\x1B[0K");
+    eprint!("\r\x1B[0K\r    \r");
 }
 
 pub fn start_playback(sample_rate: u32, channel_count: u32,
@@ -87,7 +80,6 @@ pub fn start_playback(sample_rate: u32, channel_count: u32,
     let (tx, rx) = sync_channel::<(usize, Vec<f32>)>(crate::NUM_PACKETS_BUFFERED);
     let mut leftovers: Vec<f32> = Vec::with_capacity(32768); // sure!
     let mut last_pos = None;
-    let mut loop_phase = false;
     let callback = move |args: OutputCallbackArgs<f32>| {
 	let OutputCallbackArgs {
 	    buffer,
@@ -152,15 +144,10 @@ pub fn start_playback(sample_rate: u32, channel_count: u32,
 	if let Some(cur_pos) = cur_pos {
 	    let cur_pos = cur_pos / time_unit;
 	    if Some(cur_pos) != last_pos {
-		if let Some(last_pos) = last_pos {
-		    if cur_pos < last_pos {
-			loop_phase = !loop_phase;
-		    }
-		}
 		last_pos = Some(cur_pos);
 		if progress {
 		    print_progress(cur_pos, loop_left, &loop_right, time_unit,
-				   loop_phase, &terminator);
+				   &terminator);
 		}
 	    }
 	}
