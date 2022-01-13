@@ -11,7 +11,6 @@ pub struct Terminator {
 }
 
 impl Terminator {
-    // TODO: replace hardcoded ANSI sequences with appropriate crate
     pub fn new() -> Terminator {
 	let ctrlc_count = Arc::new(AtomicU32::new(0));
 	let ctrlc_count_clone = ctrlc_count.clone();
@@ -19,7 +18,8 @@ impl Terminator {
 	    let n = ctrlc_count_clone.load(Ordering::Relaxed);
 	    let n = n + 1;
 	    if n >= 5 {
-		eprintln!("\r\x1b[0KSUDOKU!");
+		// TODO: replace with crossterm
+		eprintln!("\r\x1b[0K\rSUDOKU!");
 		std::process::exit(1)
 	    };
 	    ctrlc_count_clone.store(n, Ordering::Relaxed);

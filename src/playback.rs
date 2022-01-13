@@ -17,7 +17,6 @@ use crate::Terminator;
 fn print_progress(cur: usize, loop_left: usize, loop_right: &Arc<AtomicUsize>,
 		  time_unit: usize, terminator: &Terminator)
 {
-    // TODO: replace remaining ANSI sequence
     let cols = terminal_size::terminal_size().map(|(w,_)| w.0).unwrap_or(80)
 	as usize;
     let loop_right = loop_right.load(Ordering::Relaxed) / time_unit;
@@ -48,11 +47,14 @@ fn print_progress(cur: usize, loop_left: usize, loop_right: &Arc<AtomicUsize>,
 	for _ in fill_amt .. rem_cols { bar.push('─'); }
 	bar.push(right_bracket);
 	bar.push_str(&right_pos);
-	eprint!("\r\x1B[0K\r{}\r", bar);
+	eprint!("\r{}\r", bar);
     } else { } // cowardly don't display progress if there's no room
 }
 
 fn end_progress() {
+    // on ANSI terminals this will erase the whole progress bar. on incompati-
+    // ble terminals, it will... not do much.
+    // TODO: replace with crossterm
     eprint!("\r\x1B[0K\r    \r");
 }
 
