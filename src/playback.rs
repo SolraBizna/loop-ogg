@@ -17,8 +17,9 @@ use crate::Terminator;
 fn print_progress(cur: usize, loop_left: usize, loop_right: &Arc<AtomicUsize>,
 		  time_unit: usize, terminator: &Terminator)
 {
-    // TODO: replace ANSI sequences, actually get terminal size
-    let cols = 80;
+    // TODO: replace remaining ANSI sequence
+    let cols = terminal_size::terminal_size().map(|(w,_)| w.0).unwrap_or(80)
+	as usize;
     let loop_right = loop_right.load(Ordering::Relaxed) / time_unit;
     // we... don't expect that this display will be... useful... for a multi-
     // hour recording.
