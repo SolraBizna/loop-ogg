@@ -18,8 +18,12 @@ impl Terminator {
 	    let n = ctrlc_count_clone.load(Ordering::Relaxed);
 	    let n = n + 1;
 	    if n >= 5 {
-		// TODO: replace with crossterm
-		eprintln!("\r\x1b[0K\rSUDOKU!");
+		if cfg!(target_os = "windows") {
+		    eprintln!("\nSUDOKU!");
+		}
+		else {
+		    eprintln!("\r\x1b[0K\rSUDOKU!");
+		}
 		std::process::exit(1)
 	    };
 	    ctrlc_count_clone.store(n, Ordering::Relaxed);

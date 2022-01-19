@@ -66,10 +66,16 @@ fn print_progress(cur: usize, loop_left: usize, loop_right: &Arc<AtomicUsize>,
 }
 
 fn end_progress() {
-    // on ANSI terminals this will erase the whole progress bar. on incompati-
-    // ble terminals, it will... not do much.
-    // TODO: replace with crossterm
-    eprint!("\r\x1B[0K\r    \r");
+    if cfg!(target_os = "windows") {
+	// on Windows, we don't bother to try.
+	eprintln!("");
+    }
+    else {
+	// on ANSI terminals this will erase the whole progress bar. on
+	// incompatible terminals, it will... not do much, but we will at least
+	// erase the garbage that just got outputted, probably.
+	eprint!("\r\x1B[0K\r    \r");
+    }
 }
 
 pub fn start_playback(sample_rate: u32, channel_count: u32,
