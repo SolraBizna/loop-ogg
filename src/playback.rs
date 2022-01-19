@@ -15,8 +15,20 @@ use portaudio::{
 use crate::Terminator;
 
 fn print_progress(cur: usize, loop_left: usize, loop_right: &Arc<AtomicUsize>,
-		  time_unit: usize, terminator: &Terminator)
+		  time_unit: usize, terminator: &Terminator, unicode: bool)
 {
+    struct Theme {
+	line: char, open: char, closed_left: char, closed_right: char,
+	time_left: char, time_right: char, 
+    }
+    let theme = if unicode {
+	Theme { line: '─', open: '⋯', closed_left: '╟', closed_right: '╢',
+		time_left: '┤', time_right: '├' }
+    }
+    else {
+	Theme { line: '-', open: '+', closed_left: '[', closed_right: ']',
+		time_left: '<', time_right: '>' }
+    };
     let cols = terminal_size::terminal_size().map(|(w,_)| w.0).unwrap_or(80)
 	as usize;
     let loop_right = loop_right.load(Ordering::Relaxed) / time_unit;
@@ -25,10 +37,10 @@ fn print_progress(cur: usize, loop_left: usize, loop_right: &Arc<AtomicUsize>,
     let left_pos = format!("  {}:{:02} ", loop_left / 60, loop_left % 60);
     let right_pos = if loop_right == 0 { " ?:??".to_owned() }
     else { format!(" {}:{:02}", loop_right / 60, loop_right % 60) };
-    let cur_pos = format!("┤{}:{:02}├", cur / 60, cur % 60);
+    let cur_pos = format!("{}:{:02}", cur / 60, cur % 60);
     let mut bar = left_pos;
     bar.reserve(cols*2); //heh
-    let rem_cols = cols - bar.len() - right_pos.len() - cur_pos.len();
+    let rem_cols = cols - bar.len() - right_pos.len() - cur_pos.len() - 4;
     if rem_cols > 1 {
 	let fill_amt = if cur <= loop_left || loop_right == 0 { 0 }
 	else if cur >= loop_right { rem_cols }
@@ -36,15 +48,17 @@ fn print_progress(cur: usize, loop_left: usize, loop_right: &Arc<AtomicUsize>,
 	    ((cur - loop_left) * (rem_cols as usize) * 2 + 1)
 		/ ((loop_right - loop_left).max(1) * 2)
 	};
-	let left_bracket = if cur < loop_left { '⋯' }
-	else { '╟' };
-	let right_bracket = if !terminator.should_loop() { '⋯' }
+	let left_bracket = if cur < loop_left { theme.open }
+	else { theme.closed_left };
+	let right_bracket = if !terminator.should_loop() { theme.open }
 	else if loop_right == 0 { '?' }
-	else { '╢' };
+	else { theme.closed_right };
 	bar.push(left_bracket);
-	for _ in 0 .. fill_amt { bar.push('─'); }
+	for _ in 0 .. fill_amt { bar.push(theme.line); }
+	bar.push(theme.time_left);
 	bar.push_str(&cur_pos);
-	for _ in fill_amt .. rem_cols { bar.push('─'); }
+	bar.push(theme.time_right);
+	for _ in fill_amt .. rem_cols { bar.push(theme.line); }
 	bar.push(right_bracket);
 	bar.push_str(&right_pos);
 	eprint!("\r{}\r", bar);
@@ -63,6 +77,7 @@ pub fn start_playback(sample_rate: u32, channel_count: u32,
 		      loop_right: Arc<AtomicUsize>,
 		      terminator: Terminator,
 		      volume: f32, progress: bool) -> anyhow::Result<(u32,SyncSender<(usize, Vec<f32>)>, Box<dyn Fn() -> bool>)> {
+    let unicode = crate::am_unicode::am_unicode();
     let loop_left = loop_left / time_unit;
     let pa = PortAudio::new().expect("initializing portaudio");
     let output_device = pa.default_output_device().unwrap();
@@ -150,7 +165,7 @@ pub fn start_playback(sample_rate: u32, channel_count: u32,
 		last_pos = Some(cur_pos);
 		if progress {
 		    print_progress(cur_pos, loop_left, &loop_right, time_unit,
-				   &terminator);
+				   &terminator, unicode);
 		}
 	    }
 	}

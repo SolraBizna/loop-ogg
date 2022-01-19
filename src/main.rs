@@ -9,6 +9,7 @@ mod playback;
 mod resample;
 mod terminate;
 use terminate::Terminator;
+mod am_unicode;
 
 #[derive(Parser, Debug)]
 #[clap(author = "Solra Bizna <solra@bizna.name>", version,
