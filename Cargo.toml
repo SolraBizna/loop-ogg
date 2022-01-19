@@ -2,8 +2,9 @@
 name = "loop-ogg"
 version = "0.1.0"
 edition = "2021"
-
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+license = "MIT OR Apache-2.0"
+authors = ["Solra Bizna <solra@bizna.name>"]
+readme = "README.md"
 
 [dependencies]
 lewton = "0.10.2"
