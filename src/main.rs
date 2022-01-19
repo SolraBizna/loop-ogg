@@ -30,7 +30,11 @@ mod am_unicode;
 		     will disengage the loop, bringing the song to its \
 		     natural conclusion. If you interrupt it more times, it \
 		     will make increasingly desperate attempts to exit \
-		     immediately.")]
+		     immediately.\n\
+		     \n\
+		     Until then, it will play back your audio file, and \
+		     (optionally) display a timeline showing the loop status, \
+		     current time, and where the loop points are.")]
 struct Invocation {
     /// The path to the Ogg Vorbis file to play.
     path: PathBuf,
