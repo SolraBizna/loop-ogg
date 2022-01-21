@@ -146,6 +146,7 @@ pub fn start_decoding(path: &Path, terminator: Terminator)
 		    Ok(x) => x,
 		    Err(_) => return,
 		};
+                debug_assert!(floats.len() > 0);
 		if floats.len() <= floats_left_till_start {
 		    let floats_len = floats.len();
 		    floats_left_till_start -= floats_len;
@@ -157,6 +158,7 @@ pub fn start_decoding(path: &Path, terminator: Terminator)
 			.extend_from_slice(&floats[floats_left_till_start..]);
 		    let floats_len = floats.len();
 		    floats.resize(floats_left_till_start, 0.0);
+                    debug_assert!(floats.len() > 0);
 		    if let Err(_) = loop_tx.send((pos, floats)) { return }
 		    pos += floats_len;
 		    break
@@ -176,9 +178,12 @@ pub fn start_decoding(path: &Path, terminator: Terminator)
 		rest
 	    }
 	    else {
-		if let Err(_) = loop_tx.send((loop_left_i, loop_buf.clone())) {
-		    return
-		}
+                if loop_buf.len() > 0 {
+		    if let Err(_) = loop_tx.send((loop_left_i,
+                                                  loop_buf.clone())) {
+		        return
+		    }
+                }
 		floats_left_till_end -= loop_buf.len();
 		loop {
 		    if floats_left_till_end == 0 { break vec![] }
@@ -200,6 +205,7 @@ pub fn start_decoding(path: &Path, terminator: Terminator)
 			    .iter().map(|x| *x).collect();
 			let floats_len = floats.len();
 			floats.resize(floats_left_till_end, 0.0);
+                        debug_assert!(floats.len() > 0);
 			buffered_sends.push_back((pos, floats));
 			pos += floats_len;
 			break rest;
@@ -297,7 +303,9 @@ pub fn start_decoding(path: &Path, terminator: Terminator)
 		    pos += chunk.len();
 		}
 	    }
-	    if let Err(_) = loop_tx.send((loop_right_i, rest)) { return }
+            if rest.len() > 0 {
+	        if let Err(_) = loop_tx.send((loop_right_i, rest)) { return }
+            }
 	    while let Ok(x) = decode_rx.recv() {
 		let x_len = x.len();
 		if let Err(_) = loop_tx.send((pos, x)) { return }

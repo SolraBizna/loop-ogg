@@ -22,6 +22,7 @@ pub fn resample(sample_rate_in: u32, sample_rate_out: u32, channel_count: u32,
 	let mut last_pos = 0;
 	while let Ok((pos, in_buf)) = in_rx.recv() {
 	    if terminator.should_terminate() { break }
+            assert!(in_buf.len() > 0);
 	    let capacity = in_buf.len()
 		.checked_mul(sample_rate_out as usize)
 		.and_then(|x| x.checked_add(sample_rate_out as usize - 1))
