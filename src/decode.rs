@@ -11,7 +11,7 @@ use std::{
 
 use anyhow::anyhow;
 use lewton::inside_ogg::OggStreamReader;
-use log::trace;
+use log::{trace, warn};
 
 use crate::Terminator;
 
@@ -68,7 +68,16 @@ pub fn start_decoding(path: &Path, terminator: Terminator)
     }
     let loop_mix = loop_mix.is_some();
     let loop_left = if let Some(x) = loop_start {
-	let result = (x.parse::<f64>()? * sample_rate as f64).ceil() as usize;
+        let result = match x.parse::<usize>() {
+            Ok(x) if x >= sample_rate as usize => {
+                warn!("LOOP_START={} looks like a sample count, \
+                       should be seconds or LOOPSTART instead", x);
+                x
+            },
+            _ => {
+                (x.parse::<f64>()? * sample_rate as f64).ceil() as usize
+            },
+        };
 	trace!("LOOP_START={} → {}", x, result);
 	result
     }
@@ -79,7 +88,16 @@ pub fn start_decoding(path: &Path, terminator: Terminator)
     }
     else { 0 };
     let loop_right = if let Some(x) = loop_end {
-	let result = (x.parse::<f64>()? * sample_rate as f64).ceil() as usize;
+        let result = match x.parse::<usize>() {
+            Ok(x) if x >= sample_rate as usize => {
+                warn!("LOOP_END={} looks like a sample count, \
+                       should be seconds or LOOPLENGTH instead", x);
+                x
+            },
+            _ => {
+                (x.parse::<f64>()? * sample_rate as f64).ceil() as usize
+            },
+        };
 	trace!("LOOP_END={} → {}", x, result);
 	result
     }

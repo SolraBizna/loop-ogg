@@ -53,7 +53,7 @@ struct Invocation {
 const NUM_PACKETS_BUFFERED: usize = 30; // thirty? dirty
 
 fn main() -> anyhow::Result<()> {
-    env_logger::init();
+    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("warn")).init();
     let invocation = Invocation::parse();
     let progress = match (invocation.quiet, invocation.progress) {
 	(false, false) => atty::is(atty::Stream::Stderr),

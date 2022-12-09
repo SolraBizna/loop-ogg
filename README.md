@@ -1,6 +1,6 @@
 This is a simple **command-line utility** that does one thing: play back a single Ogg Vorbis file, over and over.
 
-It supports looping metadata of a few different standards, so that Vorbis files designed to be looped in a certain way will sound correct. Even for Vorbis files that lack such data, looping may be smoother as this utility has no gaps between loops.
+It supports [looping metadata of a few different standards](#what), so that Vorbis files designed to be looped in a certain way will sound correct. Even for Vorbis files that lack such data, looping may be smoother as this utility has no gaps between loops.
 
 When you first interrupt this program with control-C, it will disengage the loop, bringing the song to its natural conclusion. If you interrupt it more times, it will make increasingly desperate attempts to exit immediately.
 
@@ -48,6 +48,32 @@ cp target/release/loop-ogg ~/bin
 ## Running
 
 If you run `loop-ogg` without any arguments, it will print a very short usage string. `--help` will print a longer one explaining the possible options. Most of the time, you'll just do `loop-ogg path/to/SomeVorbisFile.ogg`, maybe with `-v 0.5` or something to make it quieter. There's... not a whole lot of variation available. What can I say? It's a utility that plays an Ogg Vorbis file on loop.
+
+# What
+
+This program supports two different standards for specifying loop metadata as Vorbis comments. As the Vorbis standard dictates, these comments are case insensitive. `LOOP_START` and `loop_start` and `Loop_Start` all mean the same thing.
+
+If neither `LOOP_START` nor `LOOPSTART` are present, the loop will begin at the beginning. If neither `LOOP_END` nor `LOOPLENGTH` are present, the loop will end at the end. <!-- 終わりは始まり、始まりは終わり -->
+
+## Seconds
+
+This format gives seconds as a decimal number, e.g. `4.56`. This format will be used if present. It is preferred because the same loop metadata will remain valid even if the audio is resampled.
+
+- `LOOP_START`: The first instant "in" the loop.
+- `LOOP_END`: The first instant "not in" the loop.
+
+If a seconds count is given as an integer, and it's greater than or equal to the sample rate, `loop-ogg` will assume that a mistake has been made and interpret it as a sample count instead. Don't rely on this. (If you really want to rely on this, and the warning annoys you, try `RUST_LOG= loop-ogg path/to/my_ogg.ogg` to suppress it.
+
+## Samples
+
+This format gives sample counts as a decimal integer, e.g. `456456`. This format will only be used if the corresponding seconds-based metadata is not present.
+
+- `LOOPSTART`: The first sample "in" the loop.
+- `LOOPLENGTH`: How many samples are "in" the loop.
+
+## Loop Mix
+
+As an additional feature, if a `LOOP_MIX` comment is present, the audio data after the loop will be mixed into the audio at the start of the loop in every loop after the first one. (I've seen this feature used exactly once.)
 
 # Why
 
